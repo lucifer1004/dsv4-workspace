@@ -3,8 +3,8 @@
 # latest lucifer1004/dsv4-flash-sm120 image. Run from the workspace root —
 # afterwards the layout is:
 #
-#   ./vllm/             (lucifer1004/vllm @ 300332deb, dsv4-sm120 branch)
-#   ./DeepGEMM/         (lucifer1004/DeepGEMM @ 6816517, sm120 branch)
+#   ./vllm/             (lucifer1004/vllm @ 3754b54, dsv4-sm120 branch)
+#   ./DeepGEMM/         (lucifer1004/DeepGEMM @ 64b1ac9, sm120 branch)
 #   ./sparse_mla_sm120/ (lucifer1004/sparse_mla_sm120 @ a003afc, master)
 #
 # Pass --ssh to clone via git@github.com instead of https.
@@ -41,8 +41,8 @@ clone_at() {
     git -C "$name" submodule update --init --recursive
 }
 
-clone_at vllm              300332deb7d7dcffb662246bb9638f993601e2d4
-clone_at DeepGEMM          6816517e51cf75c2618a3d38ffa3e0ea47795d30
+clone_at vllm              3754b5409fe7ba07b03817db291b5e20734c27ca
+clone_at DeepGEMM          64b1ac937fcb5a2d2adb1ef749b352f8a0501839
 clone_at sparse_mla_sm120  a003afc186b471890d393df9f3e3ba6d665d1678
 
 echo
