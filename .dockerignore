@@ -1,0 +1,57 @@
+# Build artifacts (recreated inside the image)
+**/build/
+**/dist/
+**/.venv/
+**/__pycache__/
+**/*.so
+**/*.egg-info/
+
+# Git LFS bits are huge and unnecessary. KEEP .git/objects/ — vllm uses
+# setuptools-scm and needs git history (`git describe --tags`) to
+# derive its version. Excluding objects causes the build to fail with
+# `LookupError: setuptools-scm was unable to detect version`. Cost:
+# ~290 MB extra context across the 3 repos.
+**/.git/lfs/
+**/.git/hooks/
+
+# vllm's CMake-fetched dependency build dirs (cutlass-build, etc.). The
+# *-src trees ARE included so the build doesn't need network access.
+vllm/.deps/*-build/
+vllm/.deps/*-subbuild/
+
+# DeepGEMM's cute/cutlass symlinks created by host's `just build-deepgemm`
+# (gitignored on the DeepGEMM side). They are absolute symlinks pointing
+# into the host filesystem; if copied into the build context, vllm's
+# install(DIRECTORY ...) follows them and pre-creates the cute/cutlass
+# subtrees under vllm/third_party/deep_gemm/include — then the next
+# install(DIRECTORY) for the canonical cutlass headers fails with
+# "File exists". CMake re-creates these symlinks during the docker
+# build, so excluding them from context is safe.
+DeepGEMM/deep_gemm/include/cute
+DeepGEMM/deep_gemm/include/cutlass
+
+# Similar host-side symlinks under the vendored deep_gemm tree.
+vllm/vllm/third_party/deep_gemm/include/cute
+vllm/vllm/third_party/deep_gemm/include/cutlass
+
+# JIT caches — host-specific, must be empty at image build time
+.omc/
+.claude/
+**/.cache/
+/tmp/
+.pytest_cache/
+
+# Workspace-root debug scripts (not needed in the image)
+bench_dsv4_moe_gemm.py
+inspect_*.py
+replay_*.py
+repro_*.py
+
+# Logs
+*.log
+**/.omc/logs/
+
+# Editor / OS junk
+.DS_Store
+.vscode/
+.idea/
