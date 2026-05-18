@@ -4,7 +4,7 @@
 # afterwards the layout is:
 #
 #   ./vllm/             (lucifer1004/vllm @ 300332deb, dsv4-sm120 branch)
-#   ./DeepGEMM/         (lucifer1004/DeepGEMM @ 243a8a1, sm120 branch)
+#   ./DeepGEMM/         (lucifer1004/DeepGEMM @ 6816517, sm120 branch)
 #   ./sparse_mla_sm120/ (lucifer1004/sparse_mla_sm120 @ a003afc, master)
 #
 # Pass --ssh to clone via git@github.com instead of https.
@@ -42,7 +42,7 @@ clone_at() {
 }
 
 clone_at vllm              300332deb7d7dcffb662246bb9638f993601e2d4
-clone_at DeepGEMM          243a8a16a59eb143aea100acba0ace3a9280dc2c
+clone_at DeepGEMM          6816517e51cf75c2618a3d38ffa3e0ea47795d30
 clone_at sparse_mla_sm120  a003afc186b471890d393df9f3e3ba6d665d1678
 
 echo

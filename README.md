@@ -13,7 +13,7 @@ Docker image.
 | Repo | Branch | Commit | Role |
 |---|---|---|---|
 | [lucifer1004/vllm](https://github.com/lucifer1004/vllm) | `dsv4-sm120` | `300332deb` | vLLM fork with DSv4 patches + prefill-metadata IMA clamp |
-| [lucifer1004/DeepGEMM](https://github.com/lucifer1004/DeepGEMM) | `sm120` | `243a8a1` | SM120 FP8/MXFP4 GEMM kernels + kNWarps-flexible warp partition + data-driven BLOCK_M heuristic |
+| [lucifer1004/DeepGEMM](https://github.com/lucifer1004/DeepGEMM) | `sm120` | `6816517` | SM120 FP8/MXFP4 GEMM kernels + kNWarps-flexible warp partition + data-driven BLOCK_M heuristic |
 | [lucifer1004/sparse_mla_sm120](https://github.com/lucifer1004/sparse_mla_sm120) | `master` | `a003afc` | KV-cache padded-stride fix + sparse-MLA kernels |
 
 ## Use the pre-built image (fastest)
