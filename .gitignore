@@ -1,0 +1,35 @@
+# ===== Whitelist mode =====
+# Ignore everything at the top level by default; opt in below.
+/*
+
+# Workspace-level files we track
+!/.dockerignore
+!/.gitignore
+!/LICENSE
+!/README.md
+!/bench/
+!/docker/
+!/justfile
+!/scripts/
+
+# Inside bench/: track sources + structure, ignore captured/replay outputs.
+/bench/shapes/*
+/bench/results/*
+/bench/baselines/*
+!/bench/shapes/.gitkeep
+!/bench/results/.gitkeep
+!/bench/baselines/.gitkeep
+__pycache__/
+*.pyc
+
+# Belt-and-suspenders: never track our sibling git repos, even if a
+# stray pattern accidentally lets one through. Listed explicitly so
+# the intent survives a future whitelist tweak.
+/DeepGEMM/
+/sparse_mla_sm120/
+/vllm/
+/vllm-jasl/
+/veloq/
+/.venv/
+/.omc/
+/.claude/
