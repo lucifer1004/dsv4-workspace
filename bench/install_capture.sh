@@ -6,8 +6,14 @@
 set -euo pipefail
 
 WORKSPACE="$(cd "$(dirname "$0")/.." && pwd)"
-PTH_CONTENT="${WORKSPACE}
-import bench.capture._auto
+# .pth runs at Python startup. Inserting WORKSPACE permanently into sys.path
+# would let `vllm/` (a subdir of WORKSPACE) shadow the real installed vllm
+# package as a PEP-420 namespace — that's the namespace-package trap that
+# bites every `from vllm import X` in serve_dsv4. Insert WORKSPACE only long
+# enough to import `bench.capture._auto`, then remove it. `bench.__path__`
+# is captured at import time, so later `import bench.kernels` still works
+# without WORKSPACE on sys.path.
+PTH_CONTENT="import sys; sys.path.insert(0, '${WORKSPACE}'); import bench.capture._auto; sys.path.remove('${WORKSPACE}')
 "
 
 # Resolve venv site-packages.
