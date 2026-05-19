@@ -31,22 +31,21 @@ def _build_fp8_gemm_nt_inputs(row: dict[str, Any]) -> dict[str, Any]:
 
     from vllm.utils.deep_gemm import per_block_cast_to_fp8
 
-    # Random bf16 source tensors; quantize per-block-128 along K.
+    # Default recipe on Blackwell (arch_major=12) is (1, 128, 128) per
+    # DeepGEMM's get_default_recipe — so SFA has gran_mn=1 (per-row), SFB
+    # has gran_mn=128 (per 128×N×128 block). Old code used the helper's
+    # default block_size=[128,128] for BOTH, producing SFA shape
+    # (M/128, K/128), which fails check_sf_layout's
+    #   sf.size(-2) == ceil_div(M, 1) == M
+    # assertion. Use block_size=[1,128] for LHS to get the (M, K/128)
+    # SFA layout the kernel expects; RHS stays at [128,128].
     lhs_bf16 = (torch.randn(M, K, device="cuda", dtype=torch.bfloat16) / 4).clamp(-2, 2)
     rhs_bf16 = (torch.randn(N, K, device="cuda", dtype=torch.bfloat16) / 4).clamp(-2, 2)
 
-    # per_block_cast_to_fp8 requires M aligned to block_m=128. Pad lhs if not.
-    lhs_pad = ((M + 127) // 128) * 128
-    if lhs_pad != M:
-        lhs_buf = torch.zeros(lhs_pad, K, device="cuda", dtype=torch.bfloat16)
-        lhs_buf[:M] = lhs_bf16
-        lhs_full_fp8, lhs_full_scale = per_block_cast_to_fp8(lhs_buf, use_ue8m0=True)
-        lhs_fp8 = lhs_full_fp8[:M].contiguous()
-        lhs_scale = lhs_full_scale[:M].contiguous()
-    else:
-        lhs_fp8, lhs_scale = per_block_cast_to_fp8(lhs_bf16, use_ue8m0=True)
-
-    rhs_fp8, rhs_scale = per_block_cast_to_fp8(rhs_bf16, use_ue8m0=True)
+    lhs_fp8, lhs_scale = per_block_cast_to_fp8(
+        lhs_bf16, block_size=[1, 128], use_ue8m0=True)
+    rhs_fp8, rhs_scale = per_block_cast_to_fp8(
+        rhs_bf16, block_size=[128, 128], use_ue8m0=True)
     out = torch.empty(M, N, device="cuda", dtype=torch.bfloat16)
 
     return dict(
