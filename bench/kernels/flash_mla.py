@@ -19,7 +19,7 @@ import flash_mla_sm120  # noqa: E402
 from . import register
 from ._common import (
     compute_correctness, parse_dtype_string,
-    parse_kwargs_string, parse_shape_string, time_kernel,
+    parse_kwargs_string, parse_shape_string, sparse_mla_perf, time_kernel,
 )
 
 # Use the original (unpatched) function if bench.capture has installed hooks —
@@ -191,9 +191,16 @@ def _bench_flash_mla_sparse_fwd(row: dict[str, str], *,
         torch.cuda.empty_cache()
 
     timing = time_kernel(call_full, n_warmup=n_warmup, n_iter=n_iter)
+    perf = sparse_mla_perf(
+        n_tokens=inp["n_tokens"], num_heads=inp["num_heads"],
+        topk_main=inp["indices"].size(-1),
+        topk_extra=(inp["extra_idx"].size(-1) if inp["extra_idx"] is not None else 0),
+        d_qk=inp["q"].shape[-1], d_v=inp["d_v"],
+    )
     return dict(
         timing=timing,
         correctness=correctness,
+        perf=perf,
     )
 
 
@@ -326,7 +333,13 @@ def _bench_decode(row: dict[str, str], *,
         torch.cuda.empty_cache()
 
     timing = time_kernel(call, n_warmup=n_warmup, n_iter=n_iter)
-    return dict(timing=timing, correctness=correctness)
+    perf = sparse_mla_perf(
+        n_tokens=inp["batch"] * inp["s_q"], num_heads=inp["num_heads"],
+        topk_main=inp["indices"].size(-1),
+        topk_extra=(inp["extra_idx"].size(-1) if inp["extra_idx"] is not None else 0),
+        d_qk=inp["d_qk"], d_v=inp["head_dim_v"],
+    )
+    return dict(timing=timing, correctness=correctness, perf=perf)
 
 
 @register("flash_mla_with_kvcache")

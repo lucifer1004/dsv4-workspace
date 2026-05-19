@@ -200,6 +200,69 @@ class TimingResult:
     min_ms: float
 
 
+@dataclass
+class PerfModel:
+    """Analytical FLOPs + global-memory traffic for one kernel call.
+
+    Drivers populate this only when the model is well-defined — for kernels
+    whose semantics we haven't fully characterised, set `perf=None` and
+    the runner emits blank TFLOPS / GB/s columns instead of guessing.
+
+    FLOPs convention: count each fused multiply-add as 2 (industry standard).
+    Memory model: bytes touched at the gmem boundary (reads + writes),
+    counting every addressable byte once even if the kernel's actual access
+    pattern hits L2 — gives an analytical upper bound on required BW.
+    """
+    flops: int
+    mem_bytes: int
+
+
+def fp8_gemm_perf(M: int, N: int, K: int, *,
+                  fp8_bytes: int = 1, scale_bytes: int = 4,
+                  block_k: int = 128,
+                  out_bytes: int = 2) -> PerfModel:
+    """Blockwise FP8 GEMM, NT layout: out[M,N] = lhs[M,K] @ rhs[K,N]^T.
+
+    Includes per-block fp32 scales for both operands.
+    """
+    flops = 2 * M * N * K
+    nblk = (K + block_k - 1) // block_k
+    mem_bytes = (
+        M * K * fp8_bytes + M * nblk * scale_bytes           # lhs + lhs scale
+        + N * K * fp8_bytes + N * nblk * scale_bytes         # rhs + rhs scale
+        + M * N * out_bytes                                  # out
+    )
+    return PerfModel(flops=flops, mem_bytes=mem_bytes)
+
+
+def sparse_mla_perf(n_tokens: int, num_heads: int,
+                    topk_main: int, topk_extra: int,
+                    d_qk: int, d_v: int,
+                    *, kv_bytes_per_token: int = 584,
+                    q_bytes: int = 2, out_bytes: int = 2) -> PerfModel:
+    """Sparse-MLA attention (prefill or decode, single or dual cache).
+
+    Compute: for each query (T,H) pair, K_total dot-products of d_qk (QK)
+    plus K_total weighted sums of d_v (XV). Softmax exp ignored — H*K
+    is negligible vs the K*(d_qk+d_v) MMA work.
+
+    Memory: each query token reads K_total KV rows of `kv_bytes_per_token`
+    (584B = MODEL1 packed footer: D_NOPE=448 + scales=8 + D_ROPE*2=128).
+    KV reuse across queries (L2 hit) NOT modelled — this is the analytical
+    upper bound. Q, indices, O, LSE included; attn_sink omitted (broadcast).
+    """
+    K_total = topk_main + topk_extra
+    flops = 2 * n_tokens * num_heads * K_total * (d_qk + d_v)
+    mem_bytes = (
+        n_tokens * num_heads * d_qk * q_bytes              # Q
+        + n_tokens * K_total * kv_bytes_per_token          # KV (sparse gather)
+        + n_tokens * K_total * 4                           # idx (int32)
+        + n_tokens * num_heads * d_v * out_bytes           # O
+        + n_tokens * num_heads * 4                         # LSE (fp32)
+    )
+    return PerfModel(flops=flops, mem_bytes=mem_bytes)
+
+
 def time_kernel(fn: Callable[[], None], n_warmup: int = 20,
                 n_iter: int = 100) -> TimingResult:
     """Warm up, then time `n_iter` invocations using torch.cuda.Event."""

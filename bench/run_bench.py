@@ -21,6 +21,7 @@ from bench import kernels  # noqa: E402
 _RESULT_COLS = (
     "kernel", "dtype", "shape", "kwargs", "phase", "tp_rank", "n_calls_seen",
     "status", "n_iter", "mean_ms", "p50_ms", "p99_ms", "min_ms",
+    "flops", "mem_bytes", "tflops", "gb_s",
     "max_atol", "max_rtol_norm", "ulp_distance", "calc_diff",
     "out_dtype", "n_nan", "n_inf",
     "host", "gpu", "sparse_mla_commit", "deepgemm_commit", "vllm_commit",
@@ -74,6 +75,7 @@ def _run_one(row: dict, *, n_warmup: int, n_iter: int, check: bool,
         tp_rank=row.get("tp_rank", ""), n_calls_seen=row.get("n_calls", ""),
         status="SKIP_NO_DRIVER", n_iter=0, mean_ms=0.0, p50_ms=0.0, p99_ms=0.0,
         min_ms=0.0,
+        flops="", mem_bytes="", tflops="", gb_s="",
         max_atol=0.0, max_rtol_norm=0.0, ulp_distance=0.0, calc_diff=0.0,
         out_dtype="", n_nan=0, n_inf=0,
         notes="",
@@ -103,6 +105,15 @@ def _run_one(row: dict, *, n_warmup: int, n_iter: int, check: bool,
     base["p50_ms"] = round(t.p50_ms, 4)
     base["p99_ms"] = round(t.p99_ms, 4)
     base["min_ms"] = round(t.min_ms, 4)
+
+    p = result.get("perf")
+    if p is not None and t.min_ms > 0:
+        # min_ms gives the peak-achieved view; consumers can recompute
+        # mean/p50 variants from (flops, mem_bytes) + the *_ms columns.
+        base["flops"] = p.flops
+        base["mem_bytes"] = p.mem_bytes
+        base["tflops"] = round(p.flops / (t.min_ms * 1e9), 2)
+        base["gb_s"] = round(p.mem_bytes / (t.min_ms * 1e6), 2)
 
     c = result.get("correctness")
     if c is None:

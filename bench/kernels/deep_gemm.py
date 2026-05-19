@@ -13,7 +13,8 @@ import torch
 
 from . import register
 from ._common import (
-    compute_correctness, parse_kwargs_string, parse_shape_string, time_kernel,
+    compute_correctness, fp8_gemm_perf, parse_kwargs_string,
+    parse_shape_string, time_kernel,
 )
 
 
@@ -87,7 +88,8 @@ def bench_fp8_gemm_nt(row, *, n_warmup: int = 20, n_iter: int = 100,
         torch.cuda.empty_cache()
 
     timing = time_kernel(call, n_warmup=n_warmup, n_iter=n_iter)
-    return dict(timing=timing, correctness=correctness)
+    perf = fp8_gemm_perf(inp["M"], inp["N"], inp["K"])
+    return dict(timing=timing, correctness=correctness, perf=perf)
 
 
 # ── timing-only drivers for the remaining DG kernels ──────────────────
