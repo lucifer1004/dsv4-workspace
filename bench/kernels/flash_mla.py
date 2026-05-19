@@ -205,3 +205,135 @@ def bench_single(row, **opts):
 @register("flash_mla_sparse_fwd_dual")
 def bench_dual(row, **opts):
     return _bench_flash_mla_sparse_fwd(row, **opts)
+
+
+# ── decode (flash_mla_with_kvcache) ────────────────────────────────────
+
+_flash_mla_with_kvcache_unwrapped = getattr(
+    flash_mla_sm120.interface, "flash_mla_with_kvcache",
+    flash_mla_sm120.flash_mla_with_kvcache,
+)
+if hasattr(_flash_mla_with_kvcache_unwrapped, "__wrapped__"):
+    _flash_mla_with_kvcache_unwrapped = _flash_mla_with_kvcache_unwrapped.__wrapped__
+
+
+def _build_decode_inputs(row: dict[str, Any]) -> dict[str, Any]:
+    """flash_mla_with_kvcache inputs from captured row.
+
+    Shape spec: q=(batch, s_q, num_heads, d_qk); kc=packed; bt=None; cs=None;
+    ek=packed_extra or None. Indices are constructed fresh (real ones aren't
+    captured in shape — only the topk dim is implicit in kwargs).
+    """
+    shapes = parse_shape_string(row["shape"])
+    kwargs = parse_kwargs_string(row["kwargs"])
+
+    q_shape = shapes["q"]
+    if len(q_shape) == 4:
+        batch, s_q, num_heads, d_qk = q_shape
+    elif len(q_shape) == 3:
+        batch, num_heads, d_qk = q_shape
+        s_q = 1
+    else:
+        raise ValueError(f"unexpected q shape: {q_shape}")
+
+    kc_shape = shapes["kc"]
+    ek_shape = shapes.get("ek")
+    n_blocks, block_size, _, _ = kc_shape
+    s_kv_main = n_blocks * block_size
+
+    q = (torch.randn(batch, s_q, num_heads, d_qk, device="cuda",
+                     dtype=torch.bfloat16) / 4).clamp(-2, 2)
+    kc_packed, kc_dq = _make_cache(kc_shape)
+    topk = int(kwargs.get("topk", 128))
+    indices = _make_indices(batch * s_q, topk, s_kv_main).view(batch, s_q, topk)
+
+    extra_k = extra_dq = extra_idx = None
+    if ek_shape is not None:
+        extra_k, extra_dq = _make_cache(ek_shape)
+        s_kv_extra = ek_shape[0] * ek_shape[1]
+        topk_extra = int(kwargs.get("topk_extra", 0))
+        extra_idx = _make_indices(batch * s_q, topk_extra, s_kv_extra).view(
+            batch, s_q, topk_extra)
+
+    attn_sink = None
+    head_dim_v = int(kwargs.get("head_dim_v", 512))
+    return dict(
+        q=q, kc_packed=kc_packed, kc_dq=kc_dq,
+        indices=indices, extra_k=extra_k, extra_dq=extra_dq,
+        extra_idx=extra_idx, attn_sink=attn_sink,
+        head_dim_v=head_dim_v, batch=batch, s_q=s_q,
+        num_heads=num_heads, d_qk=d_qk,
+    )
+
+
+def _bench_decode(row: dict[str, str], *,
+                  n_warmup: int = 20, n_iter: int = 100,
+                  check: bool = True,
+                  ulp_threshold: float = 8.0,
+                  calc_diff_threshold: float = 1e-3,
+                  ) -> dict[str, Any]:
+    inp = _build_decode_inputs(row)
+    sched_meta = flash_mla_sm120.FlashMLASchedMeta()
+
+    def call():
+        return _flash_mla_with_kvcache_unwrapped(
+            inp["q"], inp["kc_packed"], None, None,
+            inp["head_dim_v"], sched_meta,
+            is_fp8_kvcache=True,
+            indices=inp["indices"],
+            attn_sink=inp["attn_sink"],
+            extra_k_cache=inp["extra_k"],
+            extra_indices_in_kvcache=inp["extra_idx"],
+        )
+
+    correctness = None
+    if check:
+        # The internal kernel reshapes q → (batch*s_q, h_q, d_qk). Reference
+        # uses the same flat layout — that's also what `_ref_attn` expects.
+        N = inp["batch"] * inp["s_q"]
+        n_corr = min(N, _CORRECTNESS_TOKENS_MAX)
+        q_flat = inp["q"].reshape(N, inp["num_heads"], inp["d_qk"])[:n_corr]
+        idx_flat = inp["indices"].reshape(N, -1)[:n_corr]
+        eidx_flat = (inp["extra_idx"].reshape(N, -1)[:n_corr]
+                     if inp["extra_idx"] is not None else None)
+        # Subset q + indices for correctness on a smaller slice
+        q_sub_4d = q_flat.reshape(n_corr, 1, inp["num_heads"], inp["d_qk"])
+        idx_sub = idx_flat.reshape(n_corr, 1, -1)
+        eidx_sub = eidx_flat.reshape(n_corr, 1, -1) if eidx_flat is not None else None
+        out_kernel = _flash_mla_with_kvcache_unwrapped(
+            q_sub_4d, inp["kc_packed"], None, None,
+            inp["head_dim_v"], sched_meta,
+            is_fp8_kvcache=True,
+            indices=idx_sub,
+            attn_sink=inp["attn_sink"],
+            extra_k_cache=inp["extra_k"],
+            extra_indices_in_kvcache=eidx_sub,
+        )[0]  # (n_corr, 1, h_q, d_v)
+        out_kernel = out_kernel.reshape(n_corr, inp["num_heads"], inp["head_dim_v"])
+
+        sm_scale = inp["d_qk"] ** -0.5
+        out_ref, _ = _ref_attn(
+            q_flat, inp["kc_dq"], idx_flat, sm_scale, inp["head_dim_v"],
+            kv_extra_dq=inp["extra_dq"], idx_extra=eidx_flat,
+            attn_sink=inp["attn_sink"],
+        )
+        correctness = compute_correctness(
+            out_kernel, out_ref,
+            ulp_threshold=ulp_threshold,
+            calc_diff_threshold=calc_diff_threshold,
+        )
+        del out_kernel, out_ref
+        torch.cuda.empty_cache()
+
+    timing = time_kernel(call, n_warmup=n_warmup, n_iter=n_iter)
+    return dict(timing=timing, correctness=correctness)
+
+
+@register("flash_mla_with_kvcache")
+def bench_decode_single(row, **opts):
+    return _bench_decode(row, **opts)
+
+
+@register("flash_mla_with_kvcache_dual")
+def bench_decode_dual(row, **opts):
+    return _bench_decode(row, **opts)
