@@ -1,6 +1,8 @@
 # https://just.systems
 
-dsv4 := "deepseek-ai/DeepSeek-V4-Flash"
+# Local snapshot of DSv4-Flash weights, or a HF model id. Override with
+# `just dsv4=/your/path run` or `DSV4_MODEL=… just run`.
+dsv4 := env("DSV4_MODEL", "deepseek-ai/DeepSeek-V4-Flash")
 sm120 := "12.0"
 sm120_cudaarchs := "120"
 
